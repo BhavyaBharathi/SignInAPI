@@ -74,8 +74,8 @@ namespace SignInAPI.Controllers
 
                 if (reader.Read())
                 {
-                    username = reader["Username"].ToString();
-                    storedHashedPassword = reader["Password"].ToString();
+                    username = reader["Username"]?.ToString() ?? string.Empty;
+                    storedHashedPassword = reader["Password"]?.ToString() ?? string.Empty;
                 }
                 else
                 {
