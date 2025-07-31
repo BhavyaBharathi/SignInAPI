@@ -4,6 +4,7 @@ using SignInAPI.Models;
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.AspNetCore.Identity;
+using static Azure.Core.HttpHeader;
 
 namespace SignInAPI.Controllers
 {
@@ -12,12 +13,18 @@ namespace SignInAPI.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IConfiguration _configuration;
+        private readonly Common _common;
         private readonly PasswordHasher<User> _hasher = new();
         public AuthController(IConfiguration configuration)
         {
             _configuration = configuration;
+            _common = new Common(_configuration.GetConnectionString("DefaultConnection"));
         }
-
+        /// <summary>
+        /// Registers a new user with a username, email, and password.
+        /// </summary>
+        /// <param name="user"></param>
+        /// <returns></returns>
         [HttpPost("register")]
         public IActionResult Register(User user)
         {
@@ -25,63 +32,61 @@ namespace SignInAPI.Controllers
             // Hash the password securely
             string hashedPassword = _hasher.HashPassword(user, user.Password);
 
-            using (SqlConnection conn = new SqlConnection(_configuration.GetConnectionString("DefaultConnection")))
+            // Check if user with this email already exists
+            string checkQuery = "SELECT COUNT(*) FROM Users WHERE Email = @Email";
+            var checkParams = new Dictionary<string, object>
             {
-                // Check if user with this email already exists
-                string checkQuery = "SELECT COUNT(*) FROM Users WHERE Email = @Email";
-                SqlCommand checkCmd = new SqlCommand(checkQuery, conn);
-                checkCmd.Parameters.AddWithValue("@Email", user.Email);
+                { "Email", user.Email }
+            };
 
-                conn.Open();
-                int count = (int)checkCmd.ExecuteScalar();
-
-                if (count > 0)
-                {
-                    return BadRequest("User with this email already exists.");
-                }
-
-                // Insert the new user into the database
-                string query = "INSERT INTO Users (Username, Email, Password) VALUES (@Username, @Email, @Password)";
-                SqlCommand cmd = new SqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@Username", user.Username);
-                cmd.Parameters.AddWithValue("@Email", user.Email);
-                cmd.Parameters.AddWithValue("@Password", hashedPassword);
-
-                conn.Open();
-                int rows = cmd.ExecuteNonQuery();
-
-                if (rows > 0)
-                    return Ok("User Registered Successfully");
-                else
-                    return BadRequest("Registration Failed");
+            int count = Convert.ToInt32(_common.ExecuteScalarQuery(checkQuery, checkParams));
+            if (count > 0)
+            {
+                return BadRequest("User with this email already exists.");
             }
-        }
 
+            // Insert the new user
+            string insertQuery = "INSERT INTO Users (Username, Email, Password) VALUES (@Username, @Email, @Password)";
+            var insertParams = new Dictionary<string, object>
+            {
+                { "Username", user.Username },
+                { "Email", user.Email },
+                { "Password", hashedPassword }
+            };
+
+            int rows = _common.ExecuteNonQuery(insertQuery, insertParams);
+            if (rows > 0)
+                return Ok("User Registered Successfully");
+            else
+                return BadRequest("Registration Failed");
+        }
+        /// <summary>
+        /// Authenticates a user with email and password, returning a success message and username if successful.
+        /// </summary>
+        /// <param name="loginData"></param>
+        /// <returns></returns>
         [HttpPost("signin")]
         public IActionResult SignIn([FromBody] User loginData)
         {
             string storedHashedPassword = string.Empty;
             string username = string.Empty;
 
-            using (SqlConnection conn = new SqlConnection(_configuration.GetConnectionString("DefaultConnection")))
+            string query = "SELECT Username, Password FROM Users WHERE Email = @Email";
+            var parameters = new Dictionary<string, object>
             {
-                string query = "SELECT Username, Password FROM Users WHERE Email = @Email";
-                SqlCommand cmd = new SqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@Email", loginData.Email);
+                { "Email", loginData.Email }
+            };
 
-                conn.Open();
-                SqlDataReader reader = cmd.ExecuteReader();
+            var userRow = _common.ExecuteReader(query, parameters);
 
-                if (reader.Read())
-                {
-                    username = reader["Username"]?.ToString() ?? string.Empty;
-                    storedHashedPassword = reader["Password"]?.ToString() ?? string.Empty;
-                }
-                else
-                {
-                    return Unauthorized("Invalid email or password");
-                }
+            if (userRow == null)
+            {
+                return Unauthorized("Invalid email or password");
             }
+
+            username = userRow["Username"]?.ToString() ?? string.Empty;
+            storedHashedPassword = userRow["Password"]?.ToString() ?? string.Empty;
+
 
             // Verify the hashed password
             var tempUser = new User { Email = loginData.Email };
