@@ -16,5 +16,9 @@ namespace SignInAPI.Models
         [RegularExpression(@"^(?=.*[A-Z])(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}$", ErrorMessage = "Password must contain at least one uppercase letter and one special character.")]
         [DataType(DataType.Password)] // should use <input type="password" />
         public string Password { get; set; }
+
+        [DataType(DataType.Password)]
+        [Compare("Password", ErrorMessage = "Passwords do not match")]
+        public string ConfirmPassword { get; set; }
     }
 }
